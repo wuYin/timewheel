@@ -58,7 +58,7 @@ func (tw *TimeWheel) After(timeout time.Duration, exec func()) (int64, chan stru
 	defer tw.lock.Unlock()
 
 	idx := tw.slot2Task(prevIdx)
-	task := NewTask(idx, cycles, exec)
+	task := newTask(idx, cycles, exec)
 
 	prevSlot := tw.slots[prevIdx]
 	node := prevSlot.tasks.PushFront(task)

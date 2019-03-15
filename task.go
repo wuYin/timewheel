@@ -8,7 +8,7 @@ type twTask struct {
 	doneCh chan struct{} // 通知任务执行结束
 }
 
-func NewTask(idx int64, cycles int, exec func()) *twTask {
+func newTask(idx int64, cycles int, exec func()) *twTask {
 	return &twTask{
 		idx:    idx,
 		exec:   exec,
