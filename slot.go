@@ -1,13 +1,11 @@
 package timewheel
 
-import "container/list"
-
 // 时间槽
 type twSlot struct {
 	idx   int
-	tasks *list.List
+	tasks *twList
 }
 
 func newSlot(idx int) *twSlot {
-	return &twSlot{idx: idx, tasks: list.New()}
+	return &twSlot{idx: idx, tasks: newList()}
 }

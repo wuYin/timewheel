@@ -1,7 +1,6 @@
 package timewheel
 
 import (
-	"container/list"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -10,13 +9,13 @@ import (
 
 type TimeWheel struct {
 	ticker       *time.Ticker
-	tickDuration time.Duration           // 每次 tick 时长
-	slotNum      int                     // 槽的数量，即每轮 tick 总数+1
-	curSlot      int                     // 当前 slot
-	lock         sync.RWMutex            // 保护 idx
-	slots        []*twSlot               // 全部槽
-	taskMap      map[int64]*list.Element // taskId -> task Addr
-	incrId       int64                   // 自增 id
+	tickDuration time.Duration     // 每次 tick 时长
+	slotNum      int               // 槽的数量，即每轮 tick 总数+1
+	curSlot      int               // 当前 slot
+	lock         sync.RWMutex      // 保护 idx
+	slots        []*twSlot         // 全部槽
+	taskMap      map[int64]*twNode // taskId -> task Addr
+	incrId       int64             // 自增 id
 }
 
 func NewTimeWheel(tickDuration time.Duration, slotNum int) *TimeWheel {
@@ -25,7 +24,7 @@ func NewTimeWheel(tickDuration time.Duration, slotNum int) *TimeWheel {
 		tickDuration: tickDuration,
 		slotNum:      slotNum,
 		slots:        make([]*twSlot, 0, slotNum),
-		taskMap:      make(map[int64]*list.Element),
+		taskMap:      make(map[int64]*twNode),
 	}
 	for i := 0; i < slotNum; i++ {
 		tw.slots = append(tw.slots, newSlot(i))
@@ -61,7 +60,7 @@ func (tw *TimeWheel) After(timeout time.Duration, exec func()) (int64, chan stru
 	task := newTask(idx, cycles, exec)
 
 	prevSlot := tw.slots[prevIdx]
-	node := prevSlot.tasks.PushFront(task)
+	node := prevSlot.tasks.Push(task)
 
 	tw.taskMap[idx] = node
 	return idx, task.doneCh
@@ -73,7 +72,7 @@ func (tw *TimeWheel) Cancel(taskId int64) {
 	defer tw.lock.Unlock()
 
 	if node, ok := tw.taskMap[taskId]; ok {
-		close(node.Value.(*twTask).doneCh) // 直接关闭
+		close(node.Value().(*twTask).doneCh) // 直接关闭
 		slotIdx := tw.task2Slot(taskId)
 		tw.slots[slotIdx].tasks.Remove(node)
 		delete(tw.taskMap, taskId)
@@ -82,12 +81,12 @@ func (tw *TimeWheel) Cancel(taskId int64) {
 
 // 执行指定 slot 中的所有任务
 func (tw *TimeWheel) handleSlotTasks(idx int) {
-	var expNodes []*list.Element
+	var expNodes []*twNode
 
 	tw.lock.RLock()
 	slots := tw.slots[idx]
-	for node := slots.tasks.Back(); node != nil; node = node.Prev() {
-		task := node.Value.(*twTask)
+	for node := slots.tasks.Head(); node != nil; node = node.Next() {
+		task := node.Value().(*twTask)
 		task.cycles--
 		if task.cycles > 0 {
 			continue
@@ -109,8 +108,8 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 
 	for _, n := range expNodes {
 		tw.lock.Lock()
-		slots.tasks.Remove(n)                     // 剔除过期任务
-		delete(tw.taskMap, n.Value.(*twTask).idx) //
+		slots.tasks.Remove(n)                       // 剔除过期任务
+		delete(tw.taskMap, n.Value().(*twTask).idx) //
 		tw.lock.Unlock()
 	}
 }

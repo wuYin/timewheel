@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestAfter(t *testing.T) {
+func TestTimeWheel(t *testing.T) {
 	tw := NewTimeWheel(1*time.Millisecond, 1000)
 	idx1, waitCh1 := tw.After(2*time.Second, func() {
 		fmt.Println("cycle 1th and waited 2 seconds...")
