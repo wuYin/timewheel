@@ -18,6 +18,10 @@ type TimeWheel struct {
 	incrId       int64             // 自增 id
 }
 
+var (
+	cycleCost time.Duration // 周期耗时
+)
+
 func NewTimeWheel(tickDuration time.Duration, slotNum int) *TimeWheel {
 	tw := &TimeWheel{
 		ticker:       time.NewTicker(tickDuration),
@@ -26,6 +30,7 @@ func NewTimeWheel(tickDuration time.Duration, slotNum int) *TimeWheel {
 		slots:        make([]*twSlot, 0, slotNum),
 		taskMap:      make(map[int64]*twNode),
 	}
+	cycleCost = tw.tickDuration * time.Duration(tw.slotNum)
 	for i := 0; i < slotNum; i++ {
 		tw.slots = append(tw.slots, newSlot(i))
 	}
@@ -51,7 +56,7 @@ func NewTimeWheel(tickDuration time.Duration, slotNum int) *TimeWheel {
 // 执行延时任务
 func (tw *TimeWheel) After(timeout time.Duration, exec func()) (int64, chan struct{}) {
 	prevIdx := tw.prevSlotIdx()
-	cycles := int(int64(timeout) / (int64(tw.tickDuration) * int64(tw.slotNum)))
+	cycles := tw.cycle(timeout)
 
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
@@ -116,8 +121,7 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 
 // 在指定 slot 中无重复生成新 task id
 func (tw *TimeWheel) slot2Task(slotIdx int) int64 {
-	atomic.AddInt64(&tw.incrId, 1)
-	return int64(slotIdx)<<32 | tw.incrId>>32 // 使用 incrId 将 taskIdx 进行 shuffle 且保证去重
+	return int64(slotIdx)<<32 + atomic.AddInt64(&tw.incrId, 1) // 保证去重优先
 }
 
 // 反向获取 task 所在的 slot
@@ -135,4 +139,10 @@ func (tw *TimeWheel) prevSlotIdx() int {
 		return i - 1
 	}
 	return tw.slotNum - 1 // 当前已是最后一个 slot
+}
+
+// 计算 timeout 应在第几圈被执行
+func (tw *TimeWheel) cycle(timeout time.Duration) (n int) {
+	n = int(timeout / cycleCost)
+	return
 }
