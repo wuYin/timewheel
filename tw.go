@@ -78,6 +78,22 @@ func (tw *TimeWheel) Repeat(timeout time.Duration, exec func()) (int64, chan str
 	return t.idx, t.doneCh
 }
 
+// 更新指定的 task
+func (tw *TimeWheel) Update(taskIdx int64, newTimeout time.Duration, newExec func()) bool {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	node, ok := tw.taskMap[taskIdx]
+	if !ok {
+		return false
+	}
+	t := node.Value().(*twTask)
+	t.timeout = newTimeout
+	t.exec = newExec
+	t.cycles = cycle(newTimeout)
+	return true
+}
+
 // 中途取消延时任务的执行
 func (tw *TimeWheel) Cancel(taskId int64) {
 	tw.lock.Lock()

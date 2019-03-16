@@ -18,6 +18,14 @@ func TestTimeWheel(t *testing.T) {
 	})
 	fmt.Println("idx2", idx2)
 
+	time.Sleep(10 * time.Millisecond) // 让 task1 有机会执行
+	succ := tw.Update(idx1, 3*time.Second, func() {
+		fmt.Println("task1 updated, after 3 seconds, task1 executed")
+	})
+	if !succ {
+		t.Fatalf("update task1 failed")
+	}
+
 	idx3, doneCh3 := tw.Repeat(3*time.Second, func() {
 		fmt.Println("per 3 seconds, task3 executed")
 	})
