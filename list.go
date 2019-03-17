@@ -79,6 +79,7 @@ func (l *twList) Remove(n *twNode) {
 		next.prev = prev
 	}
 	n = nil // 主动释放内存
+	l.size--
 }
 
 func (l *twList) String() (s string) {

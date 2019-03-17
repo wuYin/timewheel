@@ -8,7 +8,7 @@ import (
 func TestList(t *testing.T) {
 	l := newList()
 	l.Push(1)
-	l.Push("2")
+	n2 := l.Push("2")
 	if l.Size() != 2 {
 		t.Fatalf("invalid list size, want %d, got %d", 2, l.Size())
 	}
@@ -26,6 +26,11 @@ func TestList(t *testing.T) {
 
 	if v, ok := vs[1].(string); !ok || v != "2" {
 		t.Fatalf("invalid value: %v", vs[1])
+	}
+
+	l.Remove(n2)
+	if l.Size()!= 1 {
+		t.Fatalf("invalid size after remove")
 	}
 
 	fmt.Println(l)
