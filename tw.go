@@ -3,7 +3,6 @@ package timewheel
 import (
 	"fmt"
 	"log"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -13,7 +12,6 @@ type TimeWheel struct {
 	tickDuration time.Duration     // 每次 tick 时长
 	slotNum      int               // 槽的数量，即每轮 tick 总数+1
 	curSlot      int               // 当前 slot
-	lock         sync.RWMutex      // 保护 idx
 	slots        []*twSlot         // 全部槽
 	taskMap      map[int64]*twNode // taskId -> task Addr
 	incrId       int64             // 自增 id
@@ -53,11 +51,9 @@ func (tw *TimeWheel) run() {
 			tw.handleSlotTasks(idx)
 			idx++
 		case t := <-tw.taskCh:
-			tw.lock.Lock()
 			slot := tw.slots[t.slotIdx]
 			node := slot.tasks.Push(t)
 			tw.taskMap[t.id] = node
-			tw.lock.Unlock()
 		}
 	}
 }
@@ -65,7 +61,7 @@ func (tw *TimeWheel) run() {
 // 执行延时任务
 func (tw *TimeWheel) After(timeout time.Duration, exec func()) (int64, chan struct{}) {
 	t := newTask(timeout, 0, exec)
-	tw.fillTaskIdx(t)
+	tw.locate(t)
 	tw.taskCh <- t
 	return t.id, t.doneCh
 }
@@ -73,54 +69,22 @@ func (tw *TimeWheel) After(timeout time.Duration, exec func()) (int64, chan stru
 // 指定重复任务
 func (tw *TimeWheel) Repeat(timeout time.Duration, repeat int, exec func()) (int64, chan struct{}) {
 	t := newTask(timeout, repeat, exec)
-	tw.fillTaskIdx(t)
+	tw.locate(t)
 	tw.taskCh <- t
 	return t.id, t.doneCh
 }
 
-// 更新指定的 task
-func (tw *TimeWheel) Update(taskIdx int64, newInterval time.Duration, newDo func()) bool {
-	tw.lock.Lock()
-	defer tw.lock.Unlock()
-
-	node, ok := tw.taskMap[taskIdx]
-	if !ok {
-		return false
-	}
-	t := node.Value().(*twTask)
-	t.interval = newInterval
-	t.do = newDo
-	t.cycles = cycle(newInterval)
-	return true
-}
-
-// 中途取消延时任务的执行
-func (tw *TimeWheel) Cancel(taskId int64) {
-	tw.lock.Lock()
-	defer tw.lock.Unlock()
-
-	if node, ok := tw.taskMap[taskId]; ok {
-		close(node.Value().(*twTask).doneCh) // 直接关闭
-		slotIdx := tw.task2Slot(taskId)
-		tw.slots[slotIdx].tasks.Remove(node)
-		delete(tw.taskMap, taskId)
-	}
-}
-
-// 填充 task 的 idx
-func (tw *TimeWheel) fillTaskIdx(t *twTask) {
-	slotIdx := tw.prevSlotIdx()
-	tw.lock.Lock()
+// 找准 task 在时间轮中的位置
+func (tw *TimeWheel) locate(t *twTask) {
+	slotIdx := tw.convSlotIdx(t.interval)
 	t.id = tw.slot2Task(slotIdx)
 	t.slotIdx = slotIdx
-	tw.lock.Unlock()
 }
 
 // 执行指定 slot 中的所有任务
 func (tw *TimeWheel) handleSlotTasks(idx int) {
 	var expNodes []*twNode
 
-	tw.lock.RLock()
 	slot := tw.slots[idx]
 	for node := slot.tasks.Head(); node != nil; node = node.Next() {
 		task := node.Value().(*twTask)
@@ -151,13 +115,10 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 			}
 		}()
 	}
-	tw.lock.RUnlock()
 
 	for _, n := range expNodes {
-		tw.lock.Lock()
 		slot.tasks.Remove(n)                       // 剔除过期任务
 		delete(tw.taskMap, n.Value().(*twTask).id) //
-		tw.lock.Unlock()
 	}
 }
 
@@ -171,16 +132,11 @@ func (tw *TimeWheel) task2Slot(taskIdx int64) int {
 	return int(taskIdx >> 32)
 }
 
-// 获取上一个 slot 的索引
-func (tw *TimeWheel) prevSlotIdx() int {
-	tw.lock.RLock()         // 注意临界区不要重叠...不然锁会相互等待造成死锁
-	defer tw.lock.RUnlock() //
-
-	i := tw.curSlot
-	if i > 0 {
-		return i - 1
-	}
-	return tw.slotNum - 1 // 当前已是最后一个 slot
+// 将 task 的 interval 计算到指定的 slot 中
+func (tw *TimeWheel) convSlotIdx(interval time.Duration) int {
+	timeGap := interval % cycleCost
+	slotGap := int(timeGap / tw.tickDuration)
+	return tw.curSlot + slotGap%tw.slotNum
 }
 
 func (tw *TimeWheel) String() (s string) {

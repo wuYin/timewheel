@@ -33,6 +33,6 @@ func cycle(timeout time.Duration) (n int) {
 }
 
 func (t *twTask) String() string {
-	return fmt.Sprintf("[slot]:%d [time]:%.f [idx]:%d [cycle]:%d",
-		t.slotIdx, t.interval.Seconds(), t.id, t.cycles)
+	return fmt.Sprintf("[slot]:%d [interval]:%.fs [cycle]:%dth [idx]:%d ",
+		t.slotIdx, t.interval.Seconds(), t.cycles, t.id)
 }
