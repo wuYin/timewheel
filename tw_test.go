@@ -21,10 +21,10 @@ func TestRepeat(t *testing.T) {
 	tw := NewTimeWheel(10*time.Millisecond, 3)
 	start := time.Now()
 	_, doneChs := tw.Repeat(1*time.Second, 4, func() {
-		fmt.Println(fmt.Sprintf("spent: %.f", time.Now().Sub(start).Seconds()))
+		fmt.Println(fmt.Sprintf("spent: %.fs", time.Now().Sub(start).Seconds()))
 	})
 	var wg sync.WaitGroup
-	wg.Add(7)
+	wg.Add(3)
 	go func() {
 		for _, done := range doneChs {
 			if _, ok := <-done; !ok {

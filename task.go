@@ -10,7 +10,7 @@ type twTask struct {
 	id       int64         // 在 slot 中的索引位置
 	slotIdx  int           // 所属 slot
 	interval time.Duration // 任务执行间隔
-	cycles   int           // 延迟指定圈后执行
+	cycles   int64         // 延迟指定圈后执行
 	do       func()        // 执行任务
 	doneCh   chan struct{} // 通知任务执行结束
 	repeat   int64         // 任务重复执行次数
@@ -27,8 +27,8 @@ func newTask(interval time.Duration, repeat int64, do func()) *twTask {
 }
 
 // 计算 timeout 应在第几圈被执行
-func cycle(interval time.Duration) (n int) {
-	n = 1 + int(interval/cycleCost)
+func cycle(interval time.Duration) (n int64) {
+	n = 1 + int64(interval)/cycleCost
 	return
 }
 
