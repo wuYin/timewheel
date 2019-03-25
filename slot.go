@@ -2,10 +2,10 @@ package timewheel
 
 // 时间槽
 type twSlot struct {
-	idx   int
+	id    int
 	tasks *twList
 }
 
-func newSlot(idx int) *twSlot {
-	return &twSlot{idx: idx, tasks: newList()}
+func newSlot(id int) *twSlot {
+	return &twSlot{id: id, tasks: newList()}
 }

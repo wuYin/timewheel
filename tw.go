@@ -54,9 +54,9 @@ func (tw *TimeWheel) run() {
 			idx++
 		case t := <-tw.taskCh:
 			tw.lock.Lock()
-			prevSlot := tw.slots[t.slot]
-			node := prevSlot.tasks.Push(t)
-			tw.taskMap[t.idx] = node
+			slot := tw.slots[t.slotIdx]
+			node := slot.tasks.Push(t)
+			tw.taskMap[t.id] = node
 			tw.lock.Unlock()
 		}
 	}
@@ -67,7 +67,7 @@ func (tw *TimeWheel) After(timeout time.Duration, exec func()) (int64, chan stru
 	t := newTask(timeout, 0, exec)
 	tw.fillTaskIdx(t)
 	tw.taskCh <- t
-	return t.idx, t.doneCh
+	return t.id, t.doneCh
 }
 
 // 指定重复任务
@@ -75,11 +75,11 @@ func (tw *TimeWheel) Repeat(timeout time.Duration, repeat int, exec func()) (int
 	t := newTask(timeout, repeat, exec)
 	tw.fillTaskIdx(t)
 	tw.taskCh <- t
-	return t.idx, t.doneCh
+	return t.id, t.doneCh
 }
 
 // 更新指定的 task
-func (tw *TimeWheel) Update(taskIdx int64, newTimeout time.Duration, newExec func()) bool {
+func (tw *TimeWheel) Update(taskIdx int64, newInterval time.Duration, newDo func()) bool {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
 
@@ -88,9 +88,9 @@ func (tw *TimeWheel) Update(taskIdx int64, newTimeout time.Duration, newExec fun
 		return false
 	}
 	t := node.Value().(*twTask)
-	t.timeout = newTimeout
-	t.exec = newExec
-	t.cycles = cycle(newTimeout)
+	t.interval = newInterval
+	t.do = newDo
+	t.cycles = cycle(newInterval)
 	return true
 }
 
@@ -110,11 +110,9 @@ func (tw *TimeWheel) Cancel(taskId int64) {
 // 填充 task 的 idx
 func (tw *TimeWheel) fillTaskIdx(t *twTask) {
 	slotIdx := tw.prevSlotIdx()
-
 	tw.lock.Lock()
-	taskIdx := tw.slot2Task(slotIdx)
-	t.idx = taskIdx
-	t.slot = slotIdx
+	t.id = tw.slot2Task(slotIdx)
+	t.slotIdx = slotIdx
 	tw.lock.Unlock()
 }
 
@@ -132,7 +130,7 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 		}
 		// 重复任务重新恢复 cycle
 		if task.repeat > 0 {
-			task.cycles = cycle(task.timeout)
+			task.cycles = cycle(task.interval)
 			task.repeat--
 		}
 
@@ -146,7 +144,7 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 					log.Printf("task exec paic: %v", err) // 出错暂只记录
 				}
 			}()
-			task.exec()               // 任务的执行是异步的
+			task.do()                 // 任务的执行是异步的
 			task.doneCh <- struct{}{} // 通知执行完毕
 			if task.repeat == 0 {
 				close(task.doneCh)
@@ -157,8 +155,8 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 
 	for _, n := range expNodes {
 		tw.lock.Lock()
-		slot.tasks.Remove(n)                        // 剔除过期任务
-		delete(tw.taskMap, n.Value().(*twTask).idx) //
+		slot.tasks.Remove(n)                       // 剔除过期任务
+		delete(tw.taskMap, n.Value().(*twTask).id) //
 		tw.lock.Unlock()
 	}
 }

@@ -7,22 +7,22 @@ import (
 
 // 每个 slot 链表中的 task
 type twTask struct {
-	slot    int           // 所属 slot
-	idx     int64         // 在 slot 中的索引位置
-	timeout time.Duration // 任务执行间隔
-	cycles  int           // 延迟指定圈后执行
-	exec    func()        // 执行任务
-	doneCh  chan struct{} // 通知任务执行结束
-	repeat  int           // 任务重复执行次数
+	id       int64         // 在 slot 中的索引位置
+	slotIdx  int           // 所属 slot
+	interval time.Duration // 任务执行间隔
+	cycles   int           // 延迟指定圈后执行
+	do       func()        // 执行任务
+	doneCh   chan struct{} // 通知任务执行结束
+	repeat   int           // 任务重复执行次数
 }
 
-func newTask(timeout time.Duration, repeat int, exec func()) *twTask {
+func newTask(interval time.Duration, repeat int, do func()) *twTask {
 	return &twTask{
-		timeout: timeout,
-		cycles:  cycle(timeout),
-		repeat:  repeat,
-		exec:    exec,
-		doneCh:  make(chan struct{}, 1), // buffed
+		interval: interval,
+		cycles:   cycle(interval),
+		repeat:   repeat,
+		do:       do,
+		doneCh:   make(chan struct{}, 1), // buffed
 	}
 }
 
@@ -33,6 +33,6 @@ func cycle(timeout time.Duration) (n int) {
 }
 
 func (t *twTask) String() string {
-	idx := fmt.Sprintf("%d", t.idx)
-	return fmt.Sprintf("[slot]:%d [time]:%.f [idx]:%s [cycle]:%d", t.slot, t.timeout.Seconds(), idx[len(idx)-2:], t.cycles)
+	return fmt.Sprintf("[slot]:%d [time]:%.f [idx]:%d [cycle]:%d",
+		t.slotIdx, t.interval.Seconds(), t.id, t.cycles)
 }
