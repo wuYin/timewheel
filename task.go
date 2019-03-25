@@ -27,8 +27,8 @@ func newTask(interval time.Duration, repeat int64, do func()) *twTask {
 }
 
 // 计算 timeout 应在第几圈被执行
-func cycle(timeout time.Duration) (n int) {
-	n = int(timeout / cycleCost)
+func cycle(interval time.Duration) (n int) {
+	n = 1 + int(interval/cycleCost)
 	return
 }
 

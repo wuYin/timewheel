@@ -3,6 +3,7 @@ package timewheel
 import (
 	"fmt"
 	"log"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -16,6 +17,7 @@ type TimeWheel struct {
 	taskMap      map[int64]*twNode // taskId -> task Addr
 	incrId       int64             // 自增 id
 	taskCh       chan *twTask      // 传递 task
+	lock         sync.RWMutex      // 锁范围不要重叠
 }
 
 var (
@@ -30,6 +32,7 @@ func NewTimeWheel(tickDuration time.Duration, slotNum int) *TimeWheel {
 		slots:        make([]*twSlot, 0, slotNum),
 		taskMap:      make(map[int64]*twNode),
 		taskCh:       make(chan *twTask, 100),
+		lock:         sync.RWMutex{},
 	}
 	cycleCost = tw.tickDuration * time.Duration(tw.slotNum)
 	for i := 0; i < slotNum; i++ {
@@ -47,14 +50,17 @@ func (tw *TimeWheel) run() {
 		select {
 		case <-tw.ticker.C:
 			idx %= tw.slotNum
-			tw.curSlot = idx
+			tw.lock.Lock()
+			tw.curSlot = idx // 锁粒度要细
+			tw.lock.Unlock()
 			tw.handleSlotTasks(idx)
 			idx++
 		case t := <-tw.taskCh:
+			tw.lock.Lock()
 			fmt.Println(t)
 			slot := tw.slots[t.slotIdx]
-			node := slot.tasks.Push(t)
-			tw.taskMap[t.id] = node
+			tw.taskMap[t.id] = slot.tasks.Push(t)
+			tw.lock.Unlock()
 		}
 	}
 }
@@ -68,37 +74,43 @@ func (tw *TimeWheel) After(timeout time.Duration, do func()) (int64, chan struct
 }
 
 // 指定重复任务
-func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) (int64, chan struct{}) {
+func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) ([]int64, []chan struct{}) {
 	intervalSum := repeatN * int64(interval)
-	trip := intervalSum / int64(cycleCost) // 往返多少趟
+	trip := intervalSum / int64(cycleCost) / int64(cycle(interval)) // 往返多少趟
 
+	var tids []int64
+	var doneChs []chan struct{}
 	if trip > 0 {
 		lap := interval
-		for cur := time.Duration(0); cur < cycleCost; cur += interval { // 每隔 interval 放置执行 trip 次的 task
+		for step := time.Duration(0); step < cycleCost; step += interval { // 每隔 interval 放置执行 trip 次的 task
 			t := newTask(interval, trip, do)
 			tw.locate(t, lap)
 			tw.taskCh <- t
 			lap += interval
+			tids = append(tids, t.id)
+			doneChs = append(doneChs, t.doneCh)
 		}
 	}
 
-	var lastId int64
-	var lastDone chan struct{}
 	lap := interval
-	remain := (intervalSum % int64(cycleCost)) / int64(tw.tickDuration)
+	remain := (intervalSum % int64(cycleCost)) / int64(interval)
 	for i := 0; i < int(remain); i++ {
 		t := newTask(interval, 1, do)
+		t.cycles = int(trip) + 1
 		tw.locate(t, lap)
 		tw.taskCh <- t
-		lastId, lastDone = t.id, t.doneCh
 		lap += interval
+		tids = append(tids, t.id)
+		doneChs = append(doneChs, t.doneCh)
 	}
 
-	return lastId, lastDone
+	return tids, doneChs
 }
 
 // 找准 task 在时间轮中的位置
 func (tw *TimeWheel) locate(t *twTask, interval time.Duration) {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
 	t.slotIdx = tw.convSlotIdx(interval)
 	t.id = tw.slot2Task(t.slotIdx)
 }
@@ -107,6 +119,7 @@ func (tw *TimeWheel) locate(t *twTask, interval time.Duration) {
 func (tw *TimeWheel) handleSlotTasks(idx int) {
 	var expNodes []*twNode
 
+	tw.lock.RLock()
 	slot := tw.slots[idx]
 	for node := slot.tasks.Head(); node != nil; node = node.Next() {
 		task := node.Value().(*twTask)
@@ -137,11 +150,14 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 			}
 		}()
 	}
+	tw.lock.RUnlock()
 
+	tw.lock.Lock()
 	for _, n := range expNodes {
 		slot.tasks.Remove(n)                       // 剔除过期任务
 		delete(tw.taskMap, n.Value().(*twTask).id) //
 	}
+	tw.lock.Unlock()
 }
 
 // 在指定 slot 中无重复生成新 task id
