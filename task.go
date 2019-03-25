@@ -13,10 +13,10 @@ type twTask struct {
 	cycles   int           // 延迟指定圈后执行
 	do       func()        // 执行任务
 	doneCh   chan struct{} // 通知任务执行结束
-	repeat   int           // 任务重复执行次数
+	repeat   int64         // 任务重复执行次数
 }
 
-func newTask(interval time.Duration, repeat int, do func()) *twTask {
+func newTask(interval time.Duration, repeat int64, do func()) *twTask {
 	return &twTask{
 		interval: interval,
 		cycles:   cycle(interval),
@@ -33,6 +33,6 @@ func cycle(timeout time.Duration) (n int) {
 }
 
 func (t *twTask) String() string {
-	return fmt.Sprintf("[slot]:%d [interval]:%.fs [cycle]:%dth [idx]:%d ",
-		t.slotIdx, t.interval.Seconds(), t.cycles, t.id)
+	return fmt.Sprintf("[slot]:%d [interval]:%.fs [repeat]:%d [cycle]:%dth [idx]:%d ",
+		t.slotIdx, t.interval.Seconds(), t.repeat, t.cycles, t.id)
 }

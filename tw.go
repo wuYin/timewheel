@@ -51,6 +51,7 @@ func (tw *TimeWheel) run() {
 			tw.handleSlotTasks(idx)
 			idx++
 		case t := <-tw.taskCh:
+			fmt.Println(t)
 			slot := tw.slots[t.slotIdx]
 			node := slot.tasks.Push(t)
 			tw.taskMap[t.id] = node
@@ -59,26 +60,47 @@ func (tw *TimeWheel) run() {
 }
 
 // 执行延时任务
-func (tw *TimeWheel) After(timeout time.Duration, exec func()) (int64, chan struct{}) {
-	t := newTask(timeout, 0, exec)
-	tw.locate(t)
+func (tw *TimeWheel) After(timeout time.Duration, do func()) (int64, chan struct{}) {
+	t := newTask(timeout, 1, do)
+	tw.locate(t, t.interval)
 	tw.taskCh <- t
 	return t.id, t.doneCh
 }
 
 // 指定重复任务
-func (tw *TimeWheel) Repeat(timeout time.Duration, repeat int, exec func()) (int64, chan struct{}) {
-	t := newTask(timeout, repeat, exec)
-	tw.locate(t)
-	tw.taskCh <- t
-	return t.id, t.doneCh
+func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) (int64, chan struct{}) {
+	intervalSum := repeatN * int64(interval)
+	trip := intervalSum / int64(cycleCost) // 往返多少趟
+
+	if trip > 0 {
+		lap := interval
+		for cur := time.Duration(0); cur < cycleCost; cur += interval { // 每隔 interval 放置执行 trip 次的 task
+			t := newTask(interval, trip, do)
+			tw.locate(t, lap)
+			tw.taskCh <- t
+			lap += interval
+		}
+	}
+
+	var lastId int64
+	var lastDone chan struct{}
+	lap := interval
+	remain := (intervalSum % int64(cycleCost)) / int64(tw.tickDuration)
+	for i := 0; i < int(remain); i++ {
+		t := newTask(interval, 1, do)
+		tw.locate(t, lap)
+		tw.taskCh <- t
+		lastId, lastDone = t.id, t.doneCh
+		lap += interval
+	}
+
+	return lastId, lastDone
 }
 
 // 找准 task 在时间轮中的位置
-func (tw *TimeWheel) locate(t *twTask) {
-	slotIdx := tw.convSlotIdx(t.interval)
-	t.id = tw.slot2Task(slotIdx)
-	t.slotIdx = slotIdx
+func (tw *TimeWheel) locate(t *twTask, interval time.Duration) {
+	t.slotIdx = tw.convSlotIdx(interval)
+	t.id = tw.slot2Task(t.slotIdx)
 }
 
 // 执行指定 slot 中的所有任务
@@ -136,7 +158,7 @@ func (tw *TimeWheel) task2Slot(taskIdx int64) int {
 func (tw *TimeWheel) convSlotIdx(interval time.Duration) int {
 	timeGap := interval % cycleCost
 	slotGap := int(timeGap / tw.tickDuration)
-	return tw.curSlot + slotGap%tw.slotNum
+	return tw.curSlot + slotGap%tw.slotNum // 误差来源
 }
 
 func (tw *TimeWheel) String() (s string) {
