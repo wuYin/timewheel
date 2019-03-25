@@ -18,8 +18,8 @@ func TestAfter(t *testing.T) {
 }
 
 func TestRepeat(t *testing.T) {
-	tw := NewTimeWheel(100*time.Millisecond, 30)
-	start := time.Now() // 时间轮有 1s 钟的误差
+	tw := NewTimeWheel(10*time.Millisecond, 3)
+	start := time.Now()
 	_, doneChs := tw.Repeat(1*time.Second, 4, func() {
 		fmt.Println(fmt.Sprintf("spent: %.f", time.Now().Sub(start).Seconds()))
 	})
