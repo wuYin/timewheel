@@ -57,7 +57,7 @@ func (tw *TimeWheel) turn() {
 			idx++
 		case t := <-tw.taskCh:
 			tw.lock.Lock()
-			// fmt.Println(t)
+			fmt.Println(t)
 			slot := tw.slots[t.slotIdx]
 			tw.taskMap[t.id] = slot.tasks.Push(t)
 			tw.lock.Unlock()
@@ -68,7 +68,7 @@ func (tw *TimeWheel) turn() {
 // 执行延时任务
 func (tw *TimeWheel) After(timeout time.Duration, do func()) (int64, chan struct{}) {
 	t := newTask(timeout, 1, do)
-	tw.locate(t, t.interval)
+	tw.locate(t, t.interval, false)
 	tw.taskCh <- t
 	return t.id, t.doneCh
 }
@@ -82,25 +82,26 @@ func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) ([
 	var tids []int64
 	var doneChs []chan struct{}
 	if trip > 0 {
-		lap := interval
+		gap := interval
 		for step := int64(0); step < cycleCost; step += int64(interval) { // 每隔 interval 放置执行 trip 次的 task
 			t := newTask(interval, trip, do)
-			tw.locate(t, lap)
+			tw.locate(t, gap, false)
 			tw.taskCh <- t
-			lap += interval
+			gap += interval
 			tids = append(tids, t.id)
 			doneChs = append(doneChs, t.doneCh)
 		}
 	}
 
-	lap := interval
+	// 计算余下几个任务时需重头开始计算
+	gap := time.Duration(0)
 	remain := (costSum % cycleCost) / int64(interval)
 	for i := 0; i < int(remain); i++ {
 		t := newTask(interval, 1, do)
 		t.cycles = trip + 1
-		tw.locate(t, lap)
+		tw.locate(t, gap, true)
 		tw.taskCh <- t
-		lap += interval
+		gap += interval
 		tids = append(tids, t.id)
 		doneChs = append(doneChs, t.doneCh)
 	}
@@ -109,10 +110,14 @@ func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) ([
 }
 
 // 计算 task 所在 slot 的编号
-func (tw *TimeWheel) locate(t *twTask, interval time.Duration) {
+func (tw *TimeWheel) locate(t *twTask, gap time.Duration, restart bool) {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
-	t.slotIdx = tw.convSlotIdx(interval)
+	if restart {
+		t.slotIdx = tw.convSlotIdx(gap)
+	} else {
+		t.slotIdx = tw.curSlot + tw.convSlotIdx(gap)
+	}
 	t.id = tw.slot2Task(t.slotIdx)
 }
 
@@ -171,11 +176,11 @@ func (tw *TimeWheel) task2Slot(taskIdx int64) int {
 	return int(taskIdx >> 32)
 }
 
-// 将 task 的 interval 计算到指定的 slot 中
-func (tw *TimeWheel) convSlotIdx(interval time.Duration) int {
-	timeGap := interval % time.Duration(cycleCost)
+// 将指定间隔计算到指定的 slot 中
+func (tw *TimeWheel) convSlotIdx(gap time.Duration) int {
+	timeGap := gap % time.Duration(cycleCost)
 	slotGap := int(timeGap / tw.tickGap)
-	return tw.curSlot + int(slotGap%tw.slotNum) // 误差来源
+	return int(slotGap % tw.slotNum)
 }
 
 func (tw *TimeWheel) String() (s string) {

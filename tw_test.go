@@ -2,7 +2,6 @@ package timewheel
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 )
@@ -17,20 +16,15 @@ func TestAfter(t *testing.T) {
 	}
 }
 
+// 存在误差 10ms
 func TestRepeat(t *testing.T) {
-	tw := NewTimeWheel(10*time.Millisecond, 3)
+	tw := NewTimeWheel(10*time.Millisecond, 300)
 	start := time.Now()
-	_, doneChs := tw.Repeat(1*time.Second, 4, func() {
+	_, doneChs := tw.Repeat(1*time.Second, 5, func() {
 		fmt.Println(fmt.Sprintf("spent: %.fs", time.Now().Sub(start).Seconds()))
 	})
-	var wg sync.WaitGroup
-	wg.Add(3)
-	go func() {
-		for _, done := range doneChs {
-			if _, ok := <-done; !ok {
-				wg.Done()
-			}
+	for _, done := range doneChs {
+		for range done {
 		}
-	}()
-	wg.Wait()
+	}
 }
