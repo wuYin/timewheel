@@ -45,6 +45,10 @@ func NewTimeWheel(tickGap time.Duration, slotNum int) *TimeWheel {
 
 // 执行延时任务
 func (tw *TimeWheel) After(timeout time.Duration, do func()) (int64, chan struct{}) {
+	if timeout <= 0 {
+		return -1, nil
+	}
+
 	t := newTask(timeout, 1, do)
 	tw.locate(t, t.interval, false)
 	tw.taskCh <- t
@@ -53,6 +57,10 @@ func (tw *TimeWheel) After(timeout time.Duration, do func()) (int64, chan struct
 
 // 执行重复任务
 func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) ([]int64, chan struct{}) {
+	if interval <= 0 || repeatN < 1 {
+		return nil, nil
+	}
+
 	costSum := repeatN * int64(interval) // 全部任务耗时
 	cycleSum := costSum / cycleCost      // 全部任务执行总圈数
 	trip := cycleSum / cycle(interval)   // 每个任务多少圈才执行一次
@@ -90,9 +98,52 @@ func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) ([
 			for range ch {
 			}
 		}
-		allDone <- struct{}{}
+		allDone <- struct{}{} // 等待全部子任务完成
 	}(doneChs)
 	return tids, allDone
+}
+
+// 更新任务
+func (tw *TimeWheel) Update(tids []int64, interval time.Duration, repeatN int64, do func()) ([]int64, chan struct{}) {
+	if len(tids) == 0 || interval <= 0 || repeatN < 1 {
+		return nil, nil
+	}
+
+	if repeatN == 1 {
+		if !tw.Cancel(tids[0]) {
+			// return nil, nil // 按需处理
+		}
+		newTid, doneCh := tw.After(interval, do)
+		return []int64{newTid}, doneCh
+	}
+
+	// 重复任务需逐个全部取消
+	for _, tid := range tids {
+		if !tw.Cancel(tid) {
+			// return nil, nil // 按需处理
+		}
+	}
+	return tw.Repeat(interval, repeatN, do)
+}
+
+// 取消任务
+func (tw *TimeWheel) Cancel(tid int64) bool {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	node, ok := tw.taskMap[tid]
+	if !ok {
+		return false // 任务已执行完毕或不存在
+	}
+
+	t := node.Value().(*twTask)
+	t.doneCh <- struct{}{}
+	close(t.doneCh) // 避免资源泄漏
+
+	slot := tw.slots[t.slotIdx]
+	slot.tasks.Remove(node)
+	delete(tw.taskMap, tid)
+	return true
 }
 
 // 接收 task 并定时运行 slot 中的任务
@@ -157,7 +208,9 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 					log.Printf("task exec paic: %v", err) // 出错暂只记录
 				}
 			}()
-			task.do()                 // 任务的执行是异步的
+			if task.do != nil {
+				task.do()
+			}
 			task.doneCh <- struct{}{} // 通知执行完毕
 			if task.repeat == 0 {
 				close(task.doneCh)
