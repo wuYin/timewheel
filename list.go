@@ -3,24 +3,12 @@ package timewheel
 import "fmt"
 
 type twNode struct {
-	val        interface{}
+	value        interface{}
 	prev, next *twNode
 }
 
 func newNode(v interface{}) *twNode {
-	return &twNode{val: v}
-}
-
-func (n *twNode) Value() interface{} {
-	return n.val
-}
-
-func (n *twNode) Prev() *twNode {
-	return n.prev
-}
-
-func (n *twNode) Next() *twNode {
-	return n.next
+	return &twNode{value: v}
 }
 
 type twList struct {
@@ -32,19 +20,7 @@ func newList() *twList {
 	return new(twList)
 }
 
-func (l *twList) Head() *twNode {
-	return l.head
-}
-
-func (l *twList) Tail() *twNode {
-	return l.tail
-}
-
-func (l *twList) Size() int {
-	return l.size
-}
-
-func (l *twList) Push(v interface{}) *twNode {
+func (l *twList) push(v interface{}) *twNode {
 	n := newNode(v)
 	if l.head == nil {
 		l.head, l.tail = n, n
@@ -61,7 +37,7 @@ func (l *twList) Push(v interface{}) *twNode {
 	return n
 }
 
-func (l *twList) Remove(n *twNode) {
+func (l *twList) remove(n *twNode) {
 	if n == nil {
 		return
 	}
@@ -83,9 +59,9 @@ func (l *twList) Remove(n *twNode) {
 }
 
 func (l *twList) String() (s string) {
-	s = fmt.Sprintf("[%d]: ", l.Size())
-	for cur := l.Head(); cur != nil; cur = cur.Next() {
-		s += fmt.Sprintf("%v <-> ", cur.Value())
+	s = fmt.Sprintf("[%d]: ", l.size)
+	for cur := l.head; cur != nil; cur = cur.next {
+		s += fmt.Sprintf("%v <-> ", cur.value)
 	}
 	s += "<nil>"
 

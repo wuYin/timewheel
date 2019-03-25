@@ -136,12 +136,12 @@ func (tw *TimeWheel) Cancel(tid int64) bool {
 		return false // 任务已执行完毕或不存在
 	}
 
-	t := node.Value().(*twTask)
+	t := node.value.(*twTask)
 	t.doneCh <- struct{}{}
 	close(t.doneCh) // 避免资源泄漏
 
 	slot := tw.slots[t.slotIdx]
-	slot.tasks.Remove(node)
+	slot.tasks.remove(node)
 	delete(tw.taskMap, tid)
 	return true
 }
@@ -162,7 +162,7 @@ func (tw *TimeWheel) turn() {
 			tw.lock.Lock()
 			// fmt.Println(t)
 			slot := tw.slots[t.slotIdx]
-			tw.taskMap[t.id] = slot.tasks.Push(t)
+			tw.taskMap[t.id] = slot.tasks.push(t)
 			tw.lock.Unlock()
 		}
 	}
@@ -186,8 +186,8 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 
 	tw.lock.RLock()
 	slot := tw.slots[idx]
-	for node := slot.tasks.Head(); node != nil; node = node.Next() {
-		task := node.Value().(*twTask)
+	for node := slot.tasks.head; node != nil; node = node.next {
+		task := node.value.(*twTask)
 		task.cycles--
 		if task.cycles > 0 {
 			continue
@@ -221,8 +221,8 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 
 	tw.lock.Lock()
 	for _, n := range expNodes {
-		slot.tasks.Remove(n)                       // 剔除过期任务
-		delete(tw.taskMap, n.Value().(*twTask).id) //
+		slot.tasks.remove(n)                     // 剔除过期任务
+		delete(tw.taskMap, n.value.(*twTask).id) //
 	}
 	tw.lock.Unlock()
 }
@@ -246,7 +246,7 @@ func (tw *TimeWheel) convSlotIdx(gap time.Duration) int {
 
 func (tw *TimeWheel) String() (s string) {
 	for _, slot := range tw.slots {
-		if slot.tasks.Size() > 0 {
+		if slot.tasks.size > 0 {
 			s += fmt.Sprintf("[%v]\t", slot.tasks)
 		}
 	}
