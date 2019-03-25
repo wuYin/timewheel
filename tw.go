@@ -43,28 +43,6 @@ func NewTimeWheel(tickGap time.Duration, slotNum int) *TimeWheel {
 	return tw
 }
 
-// 接收 task 并定时运行 slot 中的任务
-func (tw *TimeWheel) turn() {
-	idx := 0
-	for {
-		select {
-		case <-tw.ticker.C:
-			idx %= tw.slotNum
-			tw.lock.Lock()
-			tw.curSlot = idx // 锁粒度要细，不要重叠
-			tw.lock.Unlock()
-			tw.handleSlotTasks(idx)
-			idx++
-		case t := <-tw.taskCh:
-			tw.lock.Lock()
-			fmt.Println(t)
-			slot := tw.slots[t.slotIdx]
-			tw.taskMap[t.id] = slot.tasks.Push(t)
-			tw.lock.Unlock()
-		}
-	}
-}
-
 // 执行延时任务
 func (tw *TimeWheel) After(timeout time.Duration, do func()) (int64, chan struct{}) {
 	t := newTask(timeout, 1, do)
@@ -74,7 +52,7 @@ func (tw *TimeWheel) After(timeout time.Duration, do func()) (int64, chan struct
 }
 
 // 执行重复任务
-func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) ([]int64, []chan struct{}) {
+func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) ([]int64, chan struct{}) {
 	costSum := repeatN * int64(interval) // 全部任务耗时
 	cycleSum := costSum / cycleCost      // 全部任务执行总圈数
 	trip := cycleSum / cycle(interval)   // 每个任务多少圈才执行一次
@@ -106,7 +84,37 @@ func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) ([
 		doneChs = append(doneChs, t.doneCh)
 	}
 
-	return tids, doneChs
+	allDone := make(chan struct{}, 1)
+	go func(doneChs []chan struct{}) {
+		for _, ch := range doneChs {
+			for range ch {
+			}
+		}
+		allDone <- struct{}{}
+	}(doneChs)
+	return tids, allDone
+}
+
+// 接收 task 并定时运行 slot 中的任务
+func (tw *TimeWheel) turn() {
+	idx := 0
+	for {
+		select {
+		case <-tw.ticker.C:
+			idx %= tw.slotNum
+			tw.lock.Lock()
+			tw.curSlot = idx // 锁粒度要细，不要重叠
+			tw.lock.Unlock()
+			tw.handleSlotTasks(idx)
+			idx++
+		case t := <-tw.taskCh:
+			tw.lock.Lock()
+			// fmt.Println(t)
+			slot := tw.slots[t.slotIdx]
+			tw.taskMap[t.id] = slot.tasks.Push(t)
+			tw.lock.Unlock()
+		}
+	}
 }
 
 // 计算 task 所在 slot 的编号

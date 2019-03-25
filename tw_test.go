@@ -18,13 +18,10 @@ func TestAfter(t *testing.T) {
 
 // 存在误差 10ms
 func TestRepeat(t *testing.T) {
-	tw := NewTimeWheel(10*time.Millisecond, 300)
+	tw := NewTimeWheel(1*time.Second, 3)
 	start := time.Now()
-	_, doneChs := tw.Repeat(1*time.Second, 5, func() {
+	_, allDoneCh := tw.Repeat(1*time.Second, 5, func() {
 		fmt.Println(fmt.Sprintf("spent: %.fs", time.Now().Sub(start).Seconds()))
 	})
-	for _, done := range doneChs {
-		for range done {
-		}
-	}
+	<-allDoneCh
 }
