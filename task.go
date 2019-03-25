@@ -13,10 +13,10 @@ type twTask struct {
 	cycles  int           // 延迟指定圈后执行
 	exec    func()        // 执行任务
 	doneCh  chan struct{} // 通知任务执行结束
-	repeat  bool          // 任务是否需要重复执行
+	repeat  int           // 任务重复执行次数
 }
 
-func newTask(timeout time.Duration, repeat bool, exec func()) *twTask {
+func newTask(timeout time.Duration, repeat int, exec func()) *twTask {
 	return &twTask{
 		timeout: timeout,
 		cycles:  cycle(timeout),

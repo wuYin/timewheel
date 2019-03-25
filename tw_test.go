@@ -26,7 +26,7 @@ func TestTimeWheel(t *testing.T) {
 		t.Fatalf("update task1 failed")
 	}
 
-	idx3, doneCh3 := tw.Repeat(3*time.Second, func() {
+	idx3, doneCh3 := tw.Repeat(3*time.Second, 2, func() {
 		fmt.Println("per 3 seconds, task3 executed")
 	})
 	fmt.Println("idx3", idx3)
@@ -34,6 +34,7 @@ func TestTimeWheel(t *testing.T) {
 	go func() {
 		time.Sleep(1 * time.Second) // 延迟 1s 取消 task2
 		tw.Cancel(idx2)
+		fmt.Println("after 1 seconds, task2 canceled")
 	}()
 
 	go func() {
@@ -62,7 +63,10 @@ func TestTimeWheel(t *testing.T) {
 		t.Fatal("task2 has been executed")
 	}
 
+	n := 1
 	for range doneCh3 {
-		// 会一直阻塞在这
+		fmt.Printf("task3 done %d times\n", n)
+		n++
 	}
+	fmt.Println("all tasks executed...")
 }

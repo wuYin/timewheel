@@ -64,15 +64,15 @@ func (tw *TimeWheel) run() {
 
 // 执行延时任务
 func (tw *TimeWheel) After(timeout time.Duration, exec func()) (int64, chan struct{}) {
-	t := newTask(timeout, false, exec)
+	t := newTask(timeout, 0, exec)
 	tw.fillTaskIdx(t)
 	tw.taskCh <- t
 	return t.idx, t.doneCh
 }
 
 // 指定重复任务
-func (tw *TimeWheel) Repeat(timeout time.Duration, exec func()) (int64, chan struct{}) {
-	t := newTask(timeout, true, exec)
+func (tw *TimeWheel) Repeat(timeout time.Duration, repeat int, exec func()) (int64, chan struct{}) {
+	t := newTask(timeout, repeat, exec)
 	tw.fillTaskIdx(t)
 	tw.taskCh <- t
 	return t.idx, t.doneCh
@@ -123,19 +123,21 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 	var expNodes []*twNode
 
 	tw.lock.RLock()
-	slots := tw.slots[idx]
-	for node := slots.tasks.Head(); node != nil; node = node.Next() {
+	slot := tw.slots[idx]
+	for node := slot.tasks.Head(); node != nil; node = node.Next() {
 		task := node.Value().(*twTask)
 		task.cycles--
 		if task.cycles > 0 {
 			continue
 		}
 		// 重复任务重新恢复 cycle
-		if task.repeat {
+		if task.repeat > 0 {
 			task.cycles = cycle(task.timeout)
+			task.repeat--
 		}
 
-		if !task.repeat {
+		// 不重复任务或重复任务最后一次执行都将移除
+		if task.repeat == 0 {
 			expNodes = append(expNodes, node)
 		}
 		go func() {
@@ -145,8 +147,8 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 				}
 			}()
 			task.exec()               // 任务的执行是异步的
-			task.doneCh <- struct{}{} //
-			if !task.repeat {
+			task.doneCh <- struct{}{} // 通知执行完毕
+			if task.repeat == 0 {
 				close(task.doneCh)
 			}
 		}()
@@ -155,7 +157,7 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 
 	for _, n := range expNodes {
 		tw.lock.Lock()
-		slots.tasks.Remove(n)                       // 剔除过期任务
+		slot.tasks.Remove(n)                        // 剔除过期任务
 		delete(tw.taskMap, n.Value().(*twTask).idx) //
 		tw.lock.Unlock()
 	}
