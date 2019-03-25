@@ -2,6 +2,39 @@
 
 Golang 实现的时间轮算法
 
+## 使用
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/wuYin/timewheel"
+	"time"
+)
+
+func main() {
+	tw := timewheel.NewTimeWheel(100*time.Millisecond, 600) // 周期为一分钟
+
+	// 执行定时任务
+	tid, _ := tw.After(5*time.Second, func() {
+		fmt.Println("after 5 seconds, task1 executed")
+	})
+
+	// 执行指定次数的重复任务
+	_, allDone := tw.Repeat(1*time.Second, 3, func() {
+		fmt.Println("per 1 second, task2 executed")
+	})
+	<-allDone
+
+	// 中途取消任务
+	tw.Cancel(tid)
+}
+
+```
+
+
+
 ## 场景
 
 在 [wuYin/tron](https://github.com/wuYin/tron) 网络框架中，一个 Server 端需对已连接的多个 Client 定时发送 Ping 心跳包，若在超时时间内收到 Pong 包则认为连接有效，若未收到则二次规避重试一定次数后主动断开连接。实现方案：
