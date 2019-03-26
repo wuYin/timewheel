@@ -44,7 +44,7 @@ func NewTimeWheel(tickGap time.Duration, slotNum int) *TimeWheel {
 }
 
 // 执行延时任务
-func (tw *TimeWheel) After(timeout time.Duration, do func()) (int64, chan struct{}) {
+func (tw *TimeWheel) After(timeout time.Duration, do doTask) (int64, chan interface{}) {
 	if timeout < 0 {
 		return -1, nil
 	}
@@ -52,38 +52,29 @@ func (tw *TimeWheel) After(timeout time.Duration, do func()) (int64, chan struct
 	t := newTask(timeout, 1, do)
 	tw.locate(t, t.interval, false)
 	tw.taskCh <- t
-	return t.id, t.doneCh
+	return t.id, t.resCh
 }
 
 // 执行指定重试逻辑的重复任务
-func (tw *TimeWheel) AfterPoints(timeoutUnit time.Duration, points []int64, do func()) ([]int64, chan struct{}) {
+func (tw *TimeWheel) AfterPoints(timeoutUnit time.Duration, points []int64, do doTask) ([]int64, []chan interface{}) {
 	if timeoutUnit < 0 || len(points) == 0 {
 		return nil, nil
 	}
 
 	var tids []int64
-	var dones []chan struct{}
-	allDone := make(chan struct{})
+	var resChs []chan interface{}
 	for _, point := range points {
 		timeout := timeoutUnit * time.Duration(point)
-		tid, done := tw.After(timeout, do)
+		tid, resCh := tw.After(timeout, do)
 		tids = append(tids, tid)
-		dones = append(dones, done)
+		resChs = append(resChs, resCh)
 	}
 
-	go func() {
-		for _, done := range dones {
-			for range done {
-			}
-		}
-		allDone <- struct{}{}
-	}()
-
-	return tids, allDone
+	return tids, resChs
 }
 
 // 执行重复任务
-func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) ([]int64, chan struct{}) {
+func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do doTask) ([]int64, chan interface{}) {
 	if interval <= 0 || repeatN < 1 {
 		return nil, nil
 	}
@@ -93,7 +84,7 @@ func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) ([
 	trip := cycleSum / cycle(interval)   // 每个任务多少圈才执行一次
 
 	var tids []int64
-	var doneChs []chan struct{}
+	var resChs []chan interface{}
 	if trip > 0 {
 		gap := interval
 		for step := int64(0); step < cycleCost; step += int64(interval) { // 每隔 interval 放置执行 trip 次的 task
@@ -102,7 +93,7 @@ func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) ([
 			tw.taskCh <- t
 			gap += interval
 			tids = append(tids, t.id)
-			doneChs = append(doneChs, t.doneCh)
+			resChs = append(resChs, t.resCh)
 		}
 	}
 
@@ -116,22 +107,22 @@ func (tw *TimeWheel) Repeat(interval time.Duration, repeatN int64, do func()) ([
 		tw.taskCh <- t
 		gap += interval
 		tids = append(tids, t.id)
-		doneChs = append(doneChs, t.doneCh)
+		resChs = append(resChs, t.resCh)
 	}
 
-	allDone := make(chan struct{}, 1)
-	go func(doneChs []chan struct{}) {
+	allDone := make(chan interface{}, 1)
+	go func(doneChs []chan interface{}) {
 		for _, ch := range doneChs {
 			for range ch {
 			}
 		}
-		allDone <- struct{}{} // 等待全部子任务完成
-	}(doneChs)
+		allDone <- nil // 等待全部子任务完成
+	}(resChs)
 	return tids, allDone
 }
 
 // 更新任务
-func (tw *TimeWheel) Update(tids []int64, interval time.Duration, repeatN int64, do func()) ([]int64, chan struct{}) {
+func (tw *TimeWheel) Update(tids []int64, interval time.Duration, repeatN int64, do doTask) ([]int64, chan interface{}) {
 	if len(tids) == 0 || interval <= 0 || repeatN < 1 {
 		return nil, nil
 	}
@@ -140,11 +131,11 @@ func (tw *TimeWheel) Update(tids []int64, interval time.Duration, repeatN int64,
 		if !tw.Cancel(tids[0]) {
 			// return nil, nil // 按需处理
 		}
-		newTid, doneCh := tw.After(interval, do)
-		return []int64{newTid}, doneCh
+		newTid, resCh := tw.After(interval, do)
+		return []int64{newTid}, resCh
 	}
 
-	// 重复任务需逐个全部取消
+	// 重复任务需全部取消
 	for _, tid := range tids {
 		if !tw.Cancel(tid) {
 			// return nil, nil // 按需处理
@@ -164,8 +155,8 @@ func (tw *TimeWheel) Cancel(tid int64) bool {
 	}
 
 	t := node.value.(*twTask)
-	t.doneCh <- struct{}{}
-	close(t.doneCh) // 避免资源泄漏
+	t.resCh <- nil
+	close(t.resCh) // 避免资源泄漏
 
 	slot := tw.slots[t.slotIdx]
 	slot.tasks.remove(node)
@@ -235,12 +226,14 @@ func (tw *TimeWheel) handleSlotTasks(idx int) {
 					log.Printf("task exec paic: %v", err) // 出错暂只记录
 				}
 			}()
+
+			var res interface{}
 			if task.do != nil {
-				task.do()
+				res = task.do()
 			}
-			task.doneCh <- struct{}{} // 通知执行完毕
+			task.resCh <- res
 			if task.repeat == 0 {
-				close(task.doneCh)
+				close(task.resCh)
 			}
 		}()
 	}

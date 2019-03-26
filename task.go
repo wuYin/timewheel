@@ -5,24 +5,26 @@ import (
 	"time"
 )
 
+type doTask func() interface{}
+
 // 每个 slot 链表中的 task
 type twTask struct {
-	id       int64         // 在 slot 中的索引位置
-	slotIdx  int           // 所属 slot
-	interval time.Duration // 任务执行间隔
-	cycles   int64         // 延迟指定圈后执行
-	do       func()        // 执行任务
-	doneCh   chan struct{} // 通知任务执行结束
-	repeat   int64         // 任务重复执行次数
+	id       int64            // 在 slot 中的索引位置
+	slotIdx  int              // 所属 slot
+	interval time.Duration    // 任务执行间隔
+	cycles   int64            // 延迟指定圈后执行
+	do       doTask           // 执行任务
+	resCh    chan interface{} // 传递任务执行结果
+	repeat   int64            // 任务重复执行次数
 }
 
-func newTask(interval time.Duration, repeat int64, do func()) *twTask {
+func newTask(interval time.Duration, repeat int64, do func() interface{}) *twTask {
 	return &twTask{
 		interval: interval,
 		cycles:   cycle(interval),
 		repeat:   repeat,
 		do:       do,
-		doneCh:   make(chan struct{}, 1), // buffed
+		resCh:    make(chan interface{}, 1),
 	}
 }
 

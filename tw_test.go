@@ -7,38 +7,53 @@ import (
 )
 
 func TestAfter(t *testing.T) {
-	tw := NewTimeWheel(1*time.Second, 6)
+	tw := NewTimeWheel(10*time.Millisecond, 6000)
 	start := time.Now()
-	_, done := tw.After(2*time.Second, func() {
+	_, resCh := tw.After(2*time.Second, func() interface{} {
 		fmt.Println(fmt.Sprintf("spent: %.2fs", time.Now().Sub(start).Seconds()))
+		return true
 	})
-	for range done {
+	for res := range resCh {
+		succ, ok := res.(bool)
+		if !ok || succ {
+			t.Fail()
+		}
 	}
 }
 
 func TestAfterPoints(t *testing.T) {
 	tw := NewTimeWheel(100*time.Millisecond, 600)
-	points := []int64{0, 2, 4, 8, 16}
+	points := []int64{1, 2, 4, 8, 16}
 	start := time.Now()
-	_, allDone := tw.AfterPoints(1*time.Second, points, func() {
+	_, resChs := tw.AfterPoints(1*time.Second, points, func() interface{} {
 		fmt.Println(fmt.Sprintf("spent: %.2fs", time.Now().Sub(start).Seconds()))
+		return true
 	})
-	<-allDone
+	for _, resCh := range resChs {
+		for res := range resCh {
+			succ, ok := res.(bool)
+			if !ok || succ {
+				t.Fail()
+			}
+		}
+	}
 }
 
 func TestRepeat(t *testing.T) {
-	tw := NewTimeWheel(1*time.Second, 3)
+	tw := NewTimeWheel(10*time.Millisecond, 6000)
 	start := time.Now()
-	_, allDoneCh := tw.Repeat(1*time.Second, 5, func() {
+	_, allDoneCh := tw.Repeat(1*time.Second, 5, func() interface{} {
 		fmt.Println(fmt.Sprintf("spent: %.2fs", time.Now().Sub(start).Seconds()))
+		return true
 	})
 	<-allDoneCh
 }
 
 func TestCancel(t *testing.T) {
 	tw := NewTimeWheel(1*time.Second, 3)
-	tid, _ := tw.After(4*time.Second, func() {
+	tid, _ := tw.After(4*time.Second, func() interface{} {
 		fmt.Println("after 4s, task executed")
+		return true
 	})
 	time.Sleep(3 * time.Second)
 	if !tw.Cancel(tid) {
@@ -50,14 +65,16 @@ func TestCancel(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
-	tw := NewTimeWheel(1*time.Second, 3)
+	tw := NewTimeWheel(10*time.Millisecond, 6000)
 	start := time.Now()
-	tids, _ := tw.Repeat(1*time.Second, 4, func() {
-		fmt.Println(fmt.Sprintf("spent: %.2fs", time.Now().Sub(start).Seconds()))
+	tids, _ := tw.Repeat(1*time.Second, 2, func() interface{} {
+		fmt.Println(fmt.Sprintf("[origin] spent: %.2fs", time.Now().Sub(start).Seconds()))
+		return true
 	})
 	time.Sleep(2500 * time.Millisecond)
-	_, allDoneCh := tw.Update(tids, 1*time.Second, 2, func() {
-		fmt.Println(fmt.Sprintf("spent: %.2fs", time.Now().Sub(start).Seconds()))
+	_, allDoneCh := tw.Update(tids, 1*time.Second, 4, func() interface{} {
+		fmt.Println(fmt.Sprintf("[updated] spent: %.2fs", time.Now().Sub(start).Seconds()))
+		return true
 	})
 	<-allDoneCh
 }
