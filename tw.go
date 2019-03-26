@@ -45,7 +45,7 @@ func NewTimeWheel(tickGap time.Duration, slotNum int) *TimeWheel {
 
 // 执行延时任务
 func (tw *TimeWheel) After(timeout time.Duration, do func()) (int64, chan struct{}) {
-	if timeout <= 0 {
+	if timeout < 0 {
 		return -1, nil
 	}
 
@@ -53,6 +53,33 @@ func (tw *TimeWheel) After(timeout time.Duration, do func()) (int64, chan struct
 	tw.locate(t, t.interval, false)
 	tw.taskCh <- t
 	return t.id, t.doneCh
+}
+
+// 执行指定重试逻辑的重复任务
+func (tw *TimeWheel) AfterPoints(timeoutUnit time.Duration, points []int64, do func()) ([]int64, chan struct{}) {
+	if timeoutUnit < 0 || len(points) == 0 {
+		return nil, nil
+	}
+
+	var tids []int64
+	var dones []chan struct{}
+	allDone := make(chan struct{})
+	for _, point := range points {
+		timeout := timeoutUnit * time.Duration(point)
+		tid, done := tw.After(timeout, do)
+		tids = append(tids, tid)
+		dones = append(dones, done)
+	}
+
+	go func() {
+		for _, done := range dones {
+			for range done {
+			}
+		}
+		allDone <- struct{}{}
+	}()
+
+	return tids, allDone
 }
 
 // 执行重复任务
